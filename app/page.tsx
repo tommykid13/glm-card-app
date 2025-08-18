@@ -1,9 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { Card } from '../types/card';
-
-type ModelKey = 'glm-4.5-flash' | 'GLM-4-Flash-250414';
 
 const SUGGESTIONS = [
   '恐龍為什麼會滅亡？',
@@ -19,13 +17,11 @@ export default function Home() {
   const [topic, setTopic] = useState('');
   const [count, setCount] = useState(8);
   const [tone, setTone] = useState('兒童友好');
-  const [model, setModel] = useState<ModelKey>('glm-4.5-flash');
 
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>('');
 
-  // ------- 動作 -------
   async function generate() {
     if (!topic.trim()) return;
     setLoading(true);
@@ -36,7 +32,7 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, count, tone, model }),
+        body: JSON.stringify({ topic, count, tone }),
       });
 
       const raw = await res.text();
@@ -51,10 +47,11 @@ export default function Home() {
       }
 
       if (!res.ok) throw new Error(data?.error || 'Request failed');
-      setCards(Array.isArray(data?.cards) ? data.cards : []);
-      // 保存簡易歷史
+      const arr: Card[] = Array.isArray(data?.cards) ? data.cards : [];
+      setCards(arr);
+
       const history = JSON.parse(localStorage.getItem('history') || '[]') as any[];
-      history.unshift({ ts: Date.now(), topic, count, tone, model, cards: data?.cards || [] });
+      history.unshift({ ts: Date.now(), topic, count, tone, cards: arr });
       localStorage.setItem('history', JSON.stringify(history.slice(0, 10)));
     } catch (e: any) {
       setErr(e?.message || 'Failed to parse response');
@@ -97,7 +94,6 @@ export default function Home() {
     setErr('');
   }
 
-  // ------- UI -------
   return (
     <div className="min-h-screen bg-[#FFF8F1] text-[#3b3b3b]">
       <header className="mx-auto max-w-6xl px-4 py-6">
@@ -125,18 +121,6 @@ export default function Home() {
               />
 
               <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-600 mb-1">選擇 AI 幫手</label>
-                  <select
-                    className="w-full rounded-xl border border-amber-200 bg-white p-2"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value as ModelKey)}
-                  >
-                    <option value="glm-4.5-flash">GLM 4.5 Flash（快速生成）</option>
-                    <option value="GLM-4-Flash-250414">GLM-4-Flash-250414（回退）</option>
-                  </select>
-                </div>
-
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">數量</label>
                   <input
@@ -219,7 +203,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* 內容區 */}
               {cards.length === 0 ? (
                 <div className="flex h-[360px] items-center justify-center rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/40">
                   <div className="text-center text-gray-500">
@@ -237,10 +220,7 @@ export default function Home() {
                       <p className="mt-1 text-sm text-gray-600">{c.description}</p>
                       <div className="mt-2 flex flex-wrap gap-1">
                         {(c.tags || []).map((t, j) => (
-                          <span
-                            key={j}
-                            className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700"
-                          >
+                          <span key={j} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
                             {t}
                           </span>
                         ))}
