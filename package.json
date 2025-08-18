@@ -1,0 +1,32 @@
+{
+  "name": "glm-card-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "next": "14.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zod": "3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "20.10.5",
+    "@types/react": "18.2.14",
+    "@types/react-dom": "18.2.7",
+    "tailwindcss": "3.4.4",
+    "postcss": "8.4.30",
+    "autoprefixer": "10.4.16",
+    "eslint": "8.56.0",
+    "eslint-config-next": "14.2.0",
+    "prettier": "3.0.3",
+    "typescript": "5.3.3",
+    "vitest": "0.34.6"
+  }
+}
