@@ -1,39 +1,40 @@
 // app/api/chat/route.ts
 import { systemPrompt, buildUserPrompt } from '../../../lib/prompt/card';
+import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poster';
 
 export const runtime = 'edge';
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
-type Body = { topic: string; count?: number; tone?: string };
+type Body = {
+  topic: string;
+  count?: number;
+  tone?: string;
+  layout?: 'poster' | 'list';
+};
 
 function extractStrictJSON(text: string) {
-  // 擋掉可能出現的前後雜訊或 ```json 標記
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start >= 0 && end > start) {
-    const slice = text.slice(start, end + 1);
-    try { return JSON.parse(slice); } catch { /* fallthrough */ }
+  const s = text.indexOf('{');
+  const e = text.lastIndexOf('}');
+  if (s >= 0 && e > s) {
+    const cut = text.slice(s, e + 1);
+    try { return JSON.parse(cut); } catch { /* fallthrough */ }
   }
-  // 最後再嘗試直接 parse（萬一本來就是乾淨 JSON）
   return JSON.parse(text);
 }
 
-async function askZhipu(model: string, apiKey: string, userPrompt: string) {
+async function askZhipu(model: string, apiKey: string, system: string, user: string) {
   const res = await fetch(ZHIPU_ENDPOINT, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userPrompt },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
-      stream: false,                 // 關閉流式，避免分段導致 JSON 破碎
-      thinking: { type: 'disabled' } // 關閉思維輸出，避免非 JSON 內容
+      stream: false,
+      thinking: { type: 'disabled' },
     }),
   });
 
@@ -45,45 +46,47 @@ async function askZhipu(model: string, apiKey: string, userPrompt: string) {
 
   const content =
     json?.choices?.[0]?.message?.content ??
-    json?.choices?.[0]?.delta?.content ??
-    '';
+    json?.choices?.[0]?.delta?.content ?? '';
 
   if (!content) throw new Error('Empty content from model');
 
-  // 服務端先嚴格轉為物件；前端就能直接 data.cards 使用
-  const parsed = extractStrictJSON(content);
-  if (!parsed?.cards || !Array.isArray(parsed.cards)) {
-    throw new Error('Model did not return { "cards": [...] }');
-  }
-  return parsed;
+  return extractStrictJSON(content);
 }
 
 export async function POST(req: Request) {
   try {
     const apiKey = process.env.ZHIPU_API_KEY;
-    if (!apiKey) return new Response('Missing ZHIPU_API_KEY', { status: 500 });
+    if (!apiKey) return Response.json({ error: 'Missing ZHIPU_API_KEY' }, { status: 500 });
 
-    const { topic, count = 8, tone = 'neutral' } = (await req.json()) as Body;
-    const userPrompt = buildUserPrompt(topic, count, tone);
+    const { topic, count = 8, tone = 'neutral', layout = 'poster' } = (await req.json()) as Body;
 
-    const primary = process.env.MODEL_NAME || 'glm-4.5-flash';
+    const modelPrimary = process.env.MODEL_NAME || 'glm-4.5-flash';
+    const sys = layout === 'poster' ? posterSystemPrompt : systemPrompt;
+    const user = layout === 'poster'
+      ? buildPosterPrompt(topic, tone)
+      : buildUserPrompt(topic, count, tone);
+
     try {
-      const parsed = await askZhipu(primary, apiKey, userPrompt);
-      return new Response(JSON.stringify(parsed), {
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const parsed = await askZhipu(modelPrimary, apiKey, sys, user);
+      if (layout === 'poster') {
+        if (!parsed?.poster) throw new Error('Model did not return { poster: {...} }');
+        return Response.json({ poster: parsed.poster });
+      }
+      // list
+      if (!parsed?.cards || !Array.isArray(parsed.cards)) {
+        throw new Error('Model did not return { cards: [...] }');
+      }
+      return Response.json(parsed);
     } catch (e: any) {
-      // 自動回退
+      // fallback
       const fallback = 'GLM-4-Flash-250414';
-      const parsed = await askZhipu(fallback, apiKey, userPrompt);
-      return new Response(JSON.stringify({ ...parsed, _model: fallback }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const parsed = await askZhipu(fallback, apiKey, sys, user);
+      if (layout === 'poster') {
+        return Response.json({ poster: parsed.poster, _model: fallback });
+      }
+      return Response.json({ cards: parsed.cards, _model: fallback });
     }
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: String(err?.message || err) }),
-      { status: 422, headers: { 'Content-Type': 'application/json' } }
-    );
+    return Response.json({ error: String(err?.message || err) }, { status: 422 });
   }
 }
