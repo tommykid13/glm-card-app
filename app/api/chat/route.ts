@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     if (!apiKey) return new Response('Missing ZHIPU_API_KEY', { status: 500 });
 
     const { topic, count = 8, tone = 'neutral' } = (await req.json()) as Body;
-    const userPrompt = buildUserPrompt({ topic, count, tone });
+    const userPrompt = buildUserPrompt(topic, count, tone);
 
     const primary = process.env.MODEL_NAME || 'glm-4.5-flash';
     try {
