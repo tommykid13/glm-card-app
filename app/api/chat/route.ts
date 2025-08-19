@@ -5,8 +5,7 @@ import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poste
 // 使用 Edge Runtime（對長連線更穩定），並避免預渲染快取
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
-export const preferredRegion = ['iad1']; // 固定到美東 IAD，避免 hkg1 偶發延遲
-
+export const preferredRegion = ['iad1']; // 固定到美東 IAD
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
@@ -25,7 +24,36 @@ function extractStrictJSON(text: string) {
   }
   return JSON.parse(text);
 }
+function normalizePoster(parsed: any) {
+  const p = parsed?.poster ?? parsed;
+  if (!p || typeof p !== 'object') throw new Error('Model did not return poster');
 
+  const sec = Array.isArray(p.sections) ? p.sections : [];
+  const grid = Array.isArray(p.grid) ? p.grid : [];
+
+  return {
+    title: String(p.title ?? '我的知識卡'),
+    subtitle: p.subtitle ? String(p.subtitle) : '',
+    heroIcon: String(p.heroIcon ?? '🧠'),
+    sections: sec.slice(0, 3).map((s: any) => ({
+      icon: String(s?.icon ?? '✨'),
+      heading: String(s?.heading ?? ''),
+      body: String(s?.body ?? ''),
+    })),
+    compare: p.compare && p.compare.left && p.compare.right
+      ? {
+          left: { title: String(p.compare.left.title ?? '前'), bullets: (p.compare.left.bullets || []).map(String).slice(0, 3) },
+          right:{ title: String(p.compare.right.title?? '後'), bullets: (p.compare.right.bullets|| []).map(String).slice(0, 3) }
+        }
+      : undefined,
+    grid: grid.slice(0, 4).map((g: any) => ({
+      icon: String(g?.icon ?? '•'), title: String(g?.title ?? ''), text: String(g?.text ?? '')
+    })),
+    takeaway: p.takeaway
+      ? { summary: String(p.takeaway.summary ?? ''), question: p.takeaway.question ? String(p.takeaway.question) : '' }
+      : undefined,
+  };
+}
 async function askOnce(model: string, apiKey: string, system: string, user: string, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
@@ -84,16 +112,16 @@ export async function POST(req: Request) {
 
     try {
       const parsed = await askOnce(primary, apiKey, sys, user, firstTimeout);
-      if (layout === 'poster') return new Response(JSON.stringify({ poster: parsed.poster || parsed }), { headers: { 'Content-Type': 'application/json' }});
-      return new Response(JSON.stringify({ cards: parsed.cards || parsed }), { headers: { 'Content-Type': 'application/json' }});
+      if (layout === 'poster')
+        return new Response(JSON.stringify({ poster: normalizePoster(parsed) }), { headers: { 'Content-Type': 'application/json' }});
     } catch (e) {
       // 計算剩餘時間再決定是否嘗試備援
       remaining = DEADLINE_MS - (Date.now() - started);
       if (remaining < 7_000) throw e; // 剩太少就直接回錯，避免再超時
 
       const parsed = await askOnce(fallback, apiKey, sys, user, Math.min(SLICE_MS, remaining - 3_000));
-      if (layout === 'poster') return new Response(JSON.stringify({ poster: parsed.poster || parsed, _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
-      return new Response(JSON.stringify({ cards: parsed.cards || parsed, _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
+      if (layout === 'poster')
+  return new Response(JSON.stringify({ poster: normalizePoster(parsed), _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
     }
   } catch (err: any) {
     return new Response(JSON.stringify({ error: String(err?.message || err) }), {
