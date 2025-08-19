@@ -3,7 +3,7 @@
     "app/api/chat/route.ts": {
       "runtime": "nodejs",
       "maxDuration": 60,
-      "regions": ["sin1"]   // 或保留你慣用區域
+      "regions": ["sin1"]  
     }
   }
 }
