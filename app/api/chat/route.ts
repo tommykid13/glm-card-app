@@ -5,6 +5,8 @@ import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poste
 // 使用 Edge Runtime（對長連線更穩定），並避免預渲染快取
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
+export const preferredRegion = ['iad1']; // 固定到美東 IAD，避免 hkg1 偶發延遲
+
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
