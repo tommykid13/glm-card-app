@@ -1,8 +1,5 @@
 {
   "functions": {
-    "app/api/chat/route.ts": {
-      "runtime": "edge",
-      "regions": ["iad1"]
-    }
+    "app/**": { "runtime": "edge", "regions": ["iad1"] }
   }
 }
