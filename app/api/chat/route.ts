@@ -3,11 +3,9 @@ import { systemPrompt, buildUserPrompt } from '../../../lib/prompt/card';
 import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poster';
 
 // 使用 Edge Runtime（對長連線更穩定），並避免預渲染快取
-export const runtime = 'nodejs';        // ← 改用 Node.js
-export const dynamic = 'force-dynamic';
-export const preferredRegion = ['iad1']; // ← 偏好 IAD1
-export const maxDuration = 60;           // ← Node 可延長到 60s
-
+export const runtime = 'nodejs';
+export const maxDuration = 60;          // 依你的方案可調整
+export const dynamic = 'force-dynamic'; // 避免被快取
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
