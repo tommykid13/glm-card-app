@@ -2,18 +2,17 @@
 import { systemPrompt, buildUserPrompt } from '../../../lib/prompt/card';
 import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poster';
 
-export const runtime = 'nodejs';          // 改為 Node.js runtime（更穩定）
-export const maxDuration = 60;            // 放寬執行上限（依方案/配額實際生效）
-export const dynamic = 'force-dynamic';   // 禁用預渲染快取
+// 使用 Edge Runtime（對長連線更穩定），並避免預渲染快取
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
-type Body = {
-  topic: string;
-  count?: number;
-  tone?: string;
-  layout?: 'poster' | 'list';
-};
+// 前端會送 layout: 'poster' | 'list'；你若只用海報，可不傳，預設 poster
+type Body = { topic: string; count?: number; tone?: string; layout?: 'poster' | 'list' };
+
+const DEADLINE_MS = 27_000; // Edge 執行大致 30s，留 3 秒緩衝
+const SLICE_MS     = 12_000; // 主模型 12s，夠快則回應；失敗再給備援 12s
 
 function extractStrictJSON(text: string) {
   const s = text.indexOf('{');
@@ -25,44 +24,39 @@ function extractStrictJSON(text: string) {
   return JSON.parse(text);
 }
 
-async function askZhipu(
-  model: string,
-  apiKey: string,
-  system: string,
-  user: string,
-  timeoutMs = 20000 // 20s：避免卡到整體執行上限
-) {
+async function askOnce(model: string, apiKey: string, system: string, user: string, timeoutMs: number) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
+
   const res = await fetch(ZHIPU_ENDPOINT, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    // 關閉流式，避免片段造成 JSON 破碎；同時關掉 thinking 避免非 JSON
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: 'user',   content: user },
       ],
       stream: false,
-      thinking: { type: 'disabled' },
+      thinking: { type: 'disabled' }
     }),
-    signal: AbortSignal.timeout(timeoutMs),
-    // @ts-ignore keepalive 在部分環境可用
+    signal: ctrl.signal,
+    // @ts-ignore
     keepalive: true,
-  });
+  }).finally(() => clearTimeout(t));
 
-  const json = await res.json().catch(() => ({}));
+  const raw = await res.text();
+  let json: any = {};
+  try { json = JSON.parse(raw); } catch { /* 可能是反向代理錯頁 */ }
+
   if (!res.ok) {
-    const msg = json?.error?.message || `Zhipu ${model} HTTP ${res.status}`;
+    const msg = json?.error?.message || raw.slice(0, 160) || `HTTP ${res.status}`;
     throw new Error(msg);
   }
 
   const content =
     json?.choices?.[0]?.message?.content ??
-    json?.choices?.[0]?.delta?.content ??
-    '';
+    json?.choices?.[0]?.delta?.content ?? '';
 
   if (!content) throw new Error('Empty content from model');
 
@@ -70,38 +64,39 @@ async function askZhipu(
 }
 
 export async function POST(req: Request) {
+  const started = Date.now();
   try {
     const apiKey = process.env.ZHIPU_API_KEY;
-    if (!apiKey) return Response.json({ error: 'Missing ZHIPU_API_KEY' }, { status: 500 });
+    if (!apiKey) return new Response(JSON.stringify({ error: 'Missing ZHIPU_API_KEY' }), { status: 500 });
 
-    const { topic, count = 6, tone = '兒童友好', layout = 'poster' } =
-      (await req.json()) as Body;
+    const { topic, count = 6, tone = '兒童友好', layout = 'poster' } = (await req.json()) as Body;
 
-    const primary = process.env.MODEL_NAME || 'glm-4.5-flash';
-    const sys = layout === 'poster' ? posterSystemPrompt : systemPrompt;
-    const user =
-      layout === 'poster'
-        ? buildPosterPrompt(topic, tone)
-        : buildUserPrompt(topic, count, tone);
+    const sys  = layout === 'poster' ? posterSystemPrompt : systemPrompt;
+    const user = layout === 'poster' ? buildPosterPrompt(topic, tone) : buildUserPrompt(topic, count, tone);
+
+    const primary  = process.env.MODEL_NAME || 'glm-4.5-flash';
+    const fallback = 'GLM-4-Flash-250414';
+
+    let remaining = DEADLINE_MS - (Date.now() - started);
+    const firstTimeout = Math.min(SLICE_MS, Math.max(6_000, remaining - 5_000));
 
     try {
-      const parsed = await askZhipu(primary, apiKey, sys, user, 20000);
-      if (layout === 'poster') {
-        if (!parsed?.poster) throw new Error('Model did not return { poster: {...} }');
-        return Response.json({ poster: parsed.poster });
-      }
-      if (!parsed?.cards || !Array.isArray(parsed.cards)) {
-        throw new Error('Model did not return { cards: [...] }');
-      }
-      return Response.json(parsed);
-    } catch (e: any) {
-      // 逾時/錯誤 → 回退模型再試一次
-      const fallback = 'GLM-4-Flash-250414';
-      const parsed = await askZhipu(fallback, apiKey, sys, user, 20000);
-      if (layout === 'poster') return Response.json({ poster: parsed.poster, _model: fallback });
-      return Response.json({ cards: parsed.cards, _model: fallback });
+      const parsed = await askOnce(primary, apiKey, sys, user, firstTimeout);
+      if (layout === 'poster') return new Response(JSON.stringify({ poster: parsed.poster || parsed }), { headers: { 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ cards: parsed.cards || parsed }), { headers: { 'Content-Type': 'application/json' }});
+    } catch (e) {
+      // 計算剩餘時間再決定是否嘗試備援
+      remaining = DEADLINE_MS - (Date.now() - started);
+      if (remaining < 7_000) throw e; // 剩太少就直接回錯，避免再超時
+
+      const parsed = await askOnce(fallback, apiKey, sys, user, Math.min(SLICE_MS, remaining - 3_000));
+      if (layout === 'poster') return new Response(JSON.stringify({ poster: parsed.poster || parsed, _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ cards: parsed.cards || parsed, _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
     }
   } catch (err: any) {
-    return Response.json({ error: String(err?.message || err) }, { status: 422 });
+    return new Response(JSON.stringify({ error: String(err?.message || err) }), {
+      status: 422,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
