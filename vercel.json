@@ -1,5 +1,5 @@
 {
   "functions": {
-    "app/**": { "runtime": "edge", "regions": ["iad1"] }
+    "app/api/chat/route.ts": { "regions": ["iad1"], "maxDuration": 60 }
   }
 }
