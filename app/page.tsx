@@ -39,7 +39,7 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, count, tone, layout }),
+        body: JSON.stringify({ topic, count, tone, layout: 'poster' }),
       });
 
       const raw = await res.text();
