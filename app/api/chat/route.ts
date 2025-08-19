@@ -3,17 +3,19 @@ import { systemPrompt, buildUserPrompt } from '../../../lib/prompt/card';
 import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poster';
 
 // 使用 Edge Runtime（對長連線更穩定），並避免預渲染快取
-export const runtime = 'edge';
+export const runtime = 'nodejs';        // ← 改用 Node.js
 export const dynamic = 'force-dynamic';
-export const preferredRegion = ['iad1']; // 固定到美東 IAD
+export const preferredRegion = ['iad1']; // ← 偏好 IAD1
+export const maxDuration = 60;           // ← Node 可延長到 60s
+
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
 // 前端會送 layout: 'poster' | 'list'；你若只用海報，可不傳，預設 poster
 type Body = { topic: string; count?: number; tone?: string; layout?: 'poster' | 'list' };
 
-const DEADLINE_MS = 27_000; // Edge 執行大致 30s，留 3 秒緩衝
-const SLICE_MS     = 12_000; // 主模型 12s，夠快則回應；失敗再給備援 12s
+const DEADLINE_MS = 24_000; // Edge 執行大致 30s，留 3 秒緩衝
+const SLICE_MS     = 9_000; // 主模型 12s，夠快則回應；失敗再給備援 12s
 
 function extractStrictJSON(text: string) {
   const s = text.indexOf('{');
@@ -112,17 +114,20 @@ export async function POST(req: Request) {
 
     try {
       const parsed = await askOnce(primary, apiKey, sys, user, firstTimeout);
-      if (layout === 'poster')
-        return new Response(JSON.stringify({ poster: normalizePoster(parsed) }), { headers: { 'Content-Type': 'application/json' }});
+      if (layout === 'poster') {
+          return new Response(JSON.stringify({ poster: normalizePoster(parsed) }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
     } catch (e) {
       // 計算剩餘時間再決定是否嘗試備援
       remaining = DEADLINE_MS - (Date.now() - started);
       if (remaining < 7_000) throw e; // 剩太少就直接回錯，避免再超時
 
       const parsed = await askOnce(fallback, apiKey, sys, user, Math.min(SLICE_MS, remaining - 3_000));
-      if (layout === 'poster')
-  return new Response(JSON.stringify({ poster: normalizePoster(parsed), _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
-    }
+      if (layout === 'poster') {
+  return new Response(JSON.stringify({ poster: normalizePoster(parsed), _model: fallback }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
   } catch (err: any) {
     return new Response(JSON.stringify({ error: String(err?.message || err) }), {
       status: 422,
