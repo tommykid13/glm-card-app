@@ -1,4 +1,3 @@
-// app/api/chat/route.ts
 import { systemPrompt, buildUserPrompt } from '../../../lib/prompt/card';
 import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poster';
 
@@ -6,35 +5,33 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-export async function POST() {
-  return Response.json({ ok: true, from: 'chat-minimal' });
-}
-
-
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
-// 前端會送 layout: 'poster' | 'list'；你若只用海報，可不傳，預設 poster
-type Body = { topic: string; count?: number; tone?: string; layout?: 'poster' | 'list' };
+type Body = {
+  topic: string;
+  count?: number;
+  tone?: string;
+  layout?: 'poster' | 'list';
+};
 
-const DEADLINE_MS = 24_000; // Edge 執行大致 30s，留 3 秒緩衝
-const SLICE_MS     = 9_000; // 主模型 12s，夠快則回應；失敗再給備援 12s
+const DEADLINE_MS = 21000; // respond within ~21s
+const SLICE_MS = 8000;     // primary 8s, fallback 8s
 
 function extractStrictJSON(text: string) {
   const s = text.indexOf('{');
   const e = text.lastIndexOf('}');
   if (s >= 0 && e > s) {
     const cut = text.slice(s, e + 1);
-    try { return JSON.parse(cut); } catch { /* fallthrough */ }
+    try { return JSON.parse(cut); } catch {}
   }
   return JSON.parse(text);
 }
+
 function normalizePoster(parsed: any) {
   const p = parsed?.poster ?? parsed;
   if (!p || typeof p !== 'object') throw new Error('Model did not return poster');
-
   const sec = Array.isArray(p.sections) ? p.sections : [];
   const grid = Array.isArray(p.grid) ? p.grid : [];
-
   return {
     title: String(p.title ?? '我的知識卡'),
     subtitle: p.subtitle ? String(p.subtitle) : '',
@@ -58,6 +55,7 @@ function normalizePoster(parsed: any) {
       : undefined,
   };
 }
+
 async function askOnce(model: string, apiKey: string, system: string, user: string, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
@@ -75,16 +73,14 @@ async function askOnce(model: string, apiKey: string, system: string, user: stri
       thinking: { type: 'disabled' }
     }),
     signal: ctrl.signal,
-    // @ts-ignore
-    keepalive: true,
   }).finally(() => clearTimeout(t));
 
   const raw = await res.text();
   let json: any = {};
-  try { json = JSON.parse(raw); } catch { /* 可能是反向代理錯頁 */ }
+  try { json = JSON.parse(raw); } catch {}
 
   if (!res.ok) {
-    const msg = json?.error?.message || raw.slice(0, 160) || `HTTP ${res.status}`;
+    const msg = json?.error?.message || raw.slice(0, 200) || `HTTP ${res.status}`;
     throw new Error(msg);
   }
 
@@ -93,7 +89,6 @@ async function askOnce(model: string, apiKey: string, system: string, user: stri
     json?.choices?.[0]?.delta?.content ?? '';
 
   if (!content) throw new Error('Empty content from model');
-
   return extractStrictJSON(content);
 }
 
@@ -112,24 +107,19 @@ export async function POST(req: Request) {
     const fallback = 'GLM-4-Flash-250414';
 
     let remaining = DEADLINE_MS - (Date.now() - started);
-    const firstTimeout = Math.min(SLICE_MS, Math.max(6_000, remaining - 5_000));
+    const firstTimeout = Math.min(SLICE_MS, maxDuration ? remaining - 5000 : SLICE_MS);
 
     try {
-      const parsed = await askOnce(primary, apiKey, sys, user, firstTimeout);
-      if (layout === 'poster') {
-          return new Response(JSON.stringify({ poster: normalizePoster(parsed) }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
+      const parsed = await askOnce(primary, apiKey, sys, user, Math.max(6000, firstTimeout));
+      if (layout === 'poster') return new Response(JSON.stringify({ poster: normalizePoster(parsed) }), { headers: { 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ cards: Array.isArray(parsed.cards) ? parsed.cards : parsed }), { headers: { 'Content-Type': 'application/json' }});
     } catch (e) {
-      // 計算剩餘時間再決定是否嘗試備援
       remaining = DEADLINE_MS - (Date.now() - started);
-      if (remaining < 7_000) throw e; // 剩太少就直接回錯，避免再超時
-
-      const parsed = await askOnce(fallback, apiKey, sys, user, Math.min(SLICE_MS, remaining - 3_000));
-      if (layout === 'poster') {
-  return new Response(JSON.stringify({ poster: normalizePoster(parsed), _model: fallback }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
+      if (remaining < 7000) throw e;
+      const parsed = await askOnce(fallback, apiKey, sys, user, Math.max(6000, Math.min(SLICE_MS, remaining - 3000)));
+      if (layout === 'poster') return new Response(JSON.stringify({ poster: normalizePoster(parsed), _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
+      return new Response(JSON.stringify({ cards: Array.isArray(parsed.cards) ? parsed.cards : parsed, _model: fallback }), { headers: { 'Content-Type': 'application/json' }});
+    }
   } catch (err: any) {
     return new Response(JSON.stringify({ error: String(err?.message || err) }), {
       status: 422,

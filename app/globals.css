@@ -2,7 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom global styles */
+:root {
+  color-scheme: light;
+}
+
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-[#FFF8F1] text-[#3b3b3b];
 }

@@ -19,9 +19,9 @@ type Layout = 'poster' | 'list';
 
 export default function Home() {
   const [topic, setTopic] = useState('');
-  const [count, setCount] = useState(8);
+  const [count, setCount] = useState(6);
   const [tone, setTone] = useState('兒童友好');
-  const [layout, setLayout] = useState<Layout>('poster'); // 預設海報
+  const [layout, setLayout] = useState<Layout>('poster');
 
   const [cards, setCards] = useState<Card[]>([]);
   const [poster, setPoster] = useState<Poster | null>(null);
@@ -43,6 +43,7 @@ export default function Home() {
       });
 
       const raw = await res.text();
+      console.log('[api/chat raw]', raw);
       let data: any;
       try { data = JSON.parse(raw); }
       catch {
@@ -53,8 +54,8 @@ export default function Home() {
 
       if (!res.ok) throw new Error(data?.error || 'Request failed');
 
-      if (layout === 'poster' && data?.poster) setPoster(data.poster as Poster);
-      else if (layout === 'list' && Array.isArray(data?.cards)) setCards(data.cards as Card[]);
+      if (data?.poster) setPoster(data.poster as Poster);
+      else if (Array.isArray(data?.cards)) setCards(data.cards as Card[]);
       else throw new Error('Unexpected response shape');
     } catch (e: any) {
       setErr(e?.message || 'Failed to parse response');
@@ -100,14 +101,9 @@ export default function Home() {
     const a = document.createElement('a'); a.href = url; a.download = 'poster.html'; a.click();
     URL.revokeObjectURL(url);
   }
-  async function shareLink() {
-    const text = `我用 GLM 生成了知識海報：《${poster?.title || topic}》`;
-    if (navigator.share) { try { await navigator.share({ text, url: location.href }); } catch {} }
-    else { await navigator.clipboard.writeText(location.href); alert('連結已複製'); }
-  }
 
   return (
-    <div className="min-h-screen bg-[#FFF8F1] text-[#3b3b3b]">
+    <div className="min-h-screen">
       <header className="mx-auto max-w-6xl px-4 py-6">
         <div className="flex items-center gap-3">
           <div className="text-3xl">🧠</div>
@@ -127,16 +123,17 @@ export default function Home() {
               <textarea
                 className="w-full rounded-xl border border-amber-200 bg-amber-50/60 p-3 outline-none focus:ring-2 focus:ring-amber-300"
                 rows={5}
-                placeholder="告訴我你想了解的任何知識，我會為你做一張有趣的卡片！\n例如：我想了解恐龍為什麼會滅亡？"
+                placeholder="告訴我你想了解的任何知識，我會為你做一張有趣的卡片！"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
               />
+
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">數量</label>
                   <input type="number" min={1} max={24}
                     className="w-full rounded-xl border border-amber-200 bg-white p-2"
-                    value={count} onChange={(e)=>setCount(parseInt(e.target.value || '8'))}/>
+                    value={count} onChange={(e)=>setCount(parseInt(e.target.value || '6'))}/>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">語氣</label>
@@ -145,7 +142,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 佈局切換（預設海報） */}
               <div className="mt-3 flex gap-2 text-xs">
                 <button
                   className={`rounded-full px-3 py-1 border ${layout==='poster'?'bg-amber-400 text-white border-amber-400':'border-amber-200 bg-amber-50'}`}
@@ -182,7 +178,7 @@ export default function Home() {
           {/* 右側展示區 */}
           <section className="flex-1">
             <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
-              {/* 工具列（海報模式才顯示完整） */}
+              {/* 工具列 */}
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <button onClick={generate} disabled={!topic || loading}
                   className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">重新生成</button>
@@ -196,8 +192,6 @@ export default function Home() {
                       className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">導出PNG</button>
                     <button onClick={exportHTML} disabled={!poster}
                       className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">下載HTML</button>
-                    <button onClick={shareLink} disabled={!poster}
-                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">分享</button>
                   </>
                 )}
               </div>
@@ -210,12 +204,8 @@ export default function Home() {
                       <h1 className="text-3xl font-extrabold tracking-tight">{poster.title}</h1>
                       <div className="text-4xl">{poster.heroIcon || '🎓'}</div>
                     </div>
-                    {poster.subtitle && (
-                      <p className="mt-1 text-gray-600">{poster.subtitle}</p>
-                    )}
-
+                    {poster.subtitle && <p className="mt-1 text-gray-600">{poster.subtitle}</p>}
                     <div className="my-4 h-px bg-amber-200" />
-
                     {(poster.sections || []).map((s, i) => (
                       <section key={i} className="mb-4">
                         <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -224,7 +214,6 @@ export default function Home() {
                         <p className="mt-1 text-gray-700 leading-relaxed">{s.body}</p>
                       </section>
                     ))}
-
                     {poster.compare && (
                       <div className="my-5 grid grid-cols-2 gap-4">
                         <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
@@ -243,7 +232,6 @@ export default function Home() {
                         </div>
                       </div>
                     )}
-
                     {poster.grid && (
                       <>
                         <h3 className="mt-6 mb-2 text-lg font-semibold">環境變化的影響</h3>
@@ -259,7 +247,6 @@ export default function Home() {
                         </div>
                       </>
                     )}
-
                     {poster.takeaway && (
                       <div className="mt-6 rounded-xl bg-white p-4 border border-amber-100">
                         <div className="font-semibold">一句話總結</div>
@@ -282,7 +269,6 @@ export default function Home() {
                   </div>
                 )
               ) : (
-                // 列表模式（保留原功能）
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {cards.map((c, i) => (
                     <article key={i} className="rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
