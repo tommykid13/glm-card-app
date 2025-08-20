@@ -31,38 +31,57 @@ export default function Home() {
   const posterRef = useRef<HTMLDivElement>(null);
 
   async function generate() {
-    if (!topic.trim()) return;
-    setLoading(true); setErr('');
-    setCards([]); setPoster(null);
+  if (!topic.trim()) return;
+  setLoading(true); setErr('');
+  setCards([]); setPoster(null);
 
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, count, tone, layout: 'poster' }), // 固定海報
+    });
+
+    const raw = await res.text();
+    console.log('[api/chat raw]', raw);
+
+    let data: any = null;
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, count, tone, layout: 'poster' }),
-      });
-
-      const raw = await res.text();
-      console.log('[api/chat raw]', raw);
-      let data: any;
-      try { data = JSON.parse(raw); }
-      catch {
-        const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-        if (s >= 0 && e > s) data = JSON.parse(raw.slice(s, e + 1));
-        else throw new Error(raw.slice(0, 200));
-      }
-
-      if (!res.ok) throw new Error(data?.error || 'Request failed');
-
-      if (data?.poster) setPoster(data.poster as Poster);
-      else if (Array.isArray(data?.cards)) setCards(data.cards as Card[]);
-      else throw new Error('Unexpected response shape');
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to parse response');
-    } finally {
-      setLoading(false);
+      data = JSON.parse(raw);
+    } catch {
+      // 兼容「模型多說的話」：擷取第一個 { 到最後一個 }
+      const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+      if (s >= 0 && e > s) data = JSON.parse(raw.slice(s, e + 1));
+      else throw new Error(raw.slice(0, 200));
     }
+
+    if (!res.ok) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+
+    // 任何一種可用形狀都吃下來
+    if (data?.poster) {
+      setLayout('poster');
+      setPoster(data.poster);
+      return;
+    }
+    if (Array.isArray(data?.cards)) {
+      setLayout('list');
+      setCards(data.cards);
+      return;
+    }
+
+    // 服務端有時回 {error:"..."} 但狀態碼為 200
+    if (data?.error) throw new Error(String(data.error));
+
+    // 兜底：把原文顯示出來幫助定位
+    throw new Error('Unexpected response: ' + JSON.stringify(data).slice(0, 200));
+  } catch (e: any) {
+    setErr(e?.message || 'Failed to parse response');
+  } finally {
+    setLoading(false);
   }
+}
 
   function onPickSuggestion(s: string) { setTopic(s); }
   function copyJSON() {
