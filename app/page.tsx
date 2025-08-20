@@ -46,44 +46,25 @@ export default function Home() {
     console.log('[api/chat raw]', raw);
 
     let data: any = null;
-
-    // ① 先嘗試直接 JSON.parse
-    try { data = JSON.parse(raw); } catch {}
-
-    // ② 服務端可能回了「文本 + JSON」→ 擷取第一個 { 到最後一個 }
-    if (!data) {
+    try { data = JSON.parse(raw); } catch {
       const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-      if (s >= 0 && e > s) {
-        try { data = JSON.parse(raw.slice(s, e + 1)); } catch {}
-      }
-    }
-
-    // ③ 服務端可能把 GLM 原始回應丟回來 → 解析 choices[0].message.content
-    if (data && !data.poster && !data.cards && data.choices?.[0]?.message?.content) {
-      const inner = data.choices[0].message.content as string;
-      try { data = JSON.parse(inner); }
-      catch {
-        const s = inner.indexOf('{'), e = inner.lastIndexOf('}');
-        if (s >= 0 && e > s) data = JSON.parse(inner.slice(s, e + 1));
-      }
+      if (s >= 0 && e > s) data = JSON.parse(raw.slice(s, e + 1));
     }
 
     if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
-    if (data?.poster) {         // 海報模式
+    if (data?.poster) {               // ← 關鍵：設置 poster
       setLayout('poster');
       setPoster(data.poster);
       return;
     }
-    if (Array.isArray(data?.cards)) { // 列表模式
+    if (Array.isArray(data?.cards)) { // 後備：列表
       setLayout('list');
       setCards(data.cards);
       return;
     }
 
-    // 服務端有時包 {error:"..."} 但狀態碼仍 200
     if (data?.error) throw new Error(String(data.error));
-
     throw new Error('Unexpected response: ' + JSON.stringify(data).slice(0, 200));
   } catch (e: any) {
     setErr(e?.message || 'Failed to parse response');
@@ -226,76 +207,82 @@ export default function Home() {
 
               {/* 渲染 */}
               {layout === 'poster' ? (
-                poster ? (
-                  <div ref={posterRef} className="mx-auto max-w-2xl rounded-2xl bg-[#FFF7ED] p-6 shadow-[0_2px_0_rgba(0,0,0,0.02)]">
-                    <div className="flex items-center justify-between">
-                      <h1 className="text-3xl font-extrabold tracking-tight">{poster.title}</h1>
-                      <div className="text-4xl">{poster.heroIcon || '🎓'}</div>
-                    </div>
-                    {poster.subtitle && <p className="mt-1 text-gray-600">{poster.subtitle}</p>}
-                    <div className="my-4 h-px bg-amber-200" />
-                    {(poster.sections || []).map((s, i) => (
-                      <section key={i} className="mb-4">
-                        <h2 className="text-xl font-semibold flex items-center gap-2">
-                          <span className="text-2xl">{s.icon}</span>{s.heading}
-                        </h2>
-                        <p className="mt-1 text-gray-700 leading-relaxed">{s.body}</p>
-                      </section>
-                    ))}
-                    {poster.compare && (
-                      <div className="my-5 grid grid-cols-2 gap-4">
-                        <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
-                          <div className="text-sm text-gray-500">對比</div>
-                          <div className="text-lg font-semibold">{poster.compare.left.title}</div>
-                          <ul className="mt-2 text-left list-disc list-inside text-gray-700">
-                            {poster.compare.left.bullets.map((b, i) => <li key={i}>{b}</li>)}
-                          </ul>
-                        </div>
-                        <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
-                          <div className="text-sm text-gray-500">VS</div>
-                          <div className="text-lg font-semibold">{poster.compare.right.title}</div>
-                          <ul className="mt-2 text-left list-disc list-inside text-gray-700">
-                            {poster.compare.right.bullets.map((b, i) => <li key={i}>{b}</li>)}
-                          </ul>
-                        </div>
-                      </div>
-                    )}
-                    {poster.grid && (
-                      <>
-                        <h3 className="mt-6 mb-2 text-lg font-semibold">環境變化的影響</h3>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {poster.grid.map((g, i) => (
-                            <div key={i} className="rounded-xl bg-white p-4 shadow-sm border border-amber-100">
-                              <div className="flex items-center gap-2 font-semibold">
-                                <span className="text-xl">{g.icon}</span>{g.title}
-                              </div>
-                              <p className="mt-1 text-gray-700">{g.text}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    {poster.takeaway && (
-                      <div className="mt-6 rounded-xl bg-white p-4 border border-amber-100">
-                        <div className="font-semibold">一句話總結</div>
-                        <p className="mt-1">
-                          <span className="font-semibold text-amber-700">{poster.takeaway.summary}</span>
-                        </p>
-                        {poster.takeaway.question && (
-                          <p className="mt-2 text-gray-700">{poster.takeaway.question}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex h-[360px] items-center justify-center rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/40">
-                    <div className="text-center text-gray-500">
-                      <div className="mb-2 text-3xl">📖</div>
-                      <div className="font-medium">你的知識卡片將在這裡顯示</div>
-                      <div className="text-sm">在左側輸入主題，點「製作我的知識卡片」</div>
-                    </div>
-                  </div>
-                )
+  poster ? (
+    <div ref={posterRef} className="mx-auto max-w-2xl rounded-2xl bg-[#FFF7ED] p-6 shadow">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-extrabold tracking-tight">{poster.title}</h1>
+        <div className="text-4xl">{poster.heroIcon || '🎓'}</div>
+      </div>
+      {poster.subtitle && <p className="mt-1 text-gray-600">{poster.subtitle}</p>}
+      <div className="my-4 h-px bg-amber-200" />
+
+      {(poster.sections || []).map((s, i) => (
+        <section key={i} className="mb-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <span className="text-2xl">{s.icon}</span>{s.heading}
+          </h2>
+          <p className="mt-1 text-gray-700 leading-relaxed">{s.body}</p>
+        </section>
+      ))}
+
+      {poster.compare && (
+        <div className="my-5 grid grid-cols-2 gap-4">
+          <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
+            <div className="text-sm text-gray-500">對比</div>
+            <div className="text-lg font-semibold">{poster.compare.left.title}</div>
+            <ul className="mt-2 text-left list-disc list-inside text-gray-700">
+              {(poster.compare.left.bullets || []).map((b, i) => <li key={i}>{b}</li>)}
+            </ul>
+          </div>
+          <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
+            <div className="text-sm text-gray-500">VS</div>
+            <div className="text-lg font-semibold">{poster.compare.right.title}</div>
+            <ul className="mt-2 text-left list-disc list-inside text-gray-700">
+              {(poster.compare.right.bullets || []).map((b, i) => <li key={i}>{b}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {poster.grid && (
+        <>
+          <h3 className="mt-6 mb-2 text-lg font-semibold">環境變化的影響</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {poster.grid.map((g, i) => (
+              <div key={i} className="rounded-xl bg-white p-4 shadow-sm border border-amber-100">
+                <div className="flex items-center gap-2 font-semibold">
+                  <span className="text-xl">{g.icon}</span>{g.title}
+                </div>
+                <p className="mt-1 text-gray-700">{g.text}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {poster.takeaway && (
+        <div className="mt-6 rounded-xl bg-white p-4 border border-amber-100">
+          <div className="font-semibold">一句話總結</div>
+          <p className="mt-1">
+            <span className="font-semibold text-amber-700">{poster.takeaway.summary}</span>
+          </p>
+          {poster.takeaway.question && (
+            <p className="mt-2 text-gray-700">{poster.takeaway.question}</p>
+          )}
+        </div>
+      )}
+    </div>
+  ) : (
+    <div className="flex h-[360px] items-center justify-center rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/40">
+      <div className="text-center text-gray-500">
+        <div className="mb-2 text-3xl">📖</div>
+        <div className="font-medium">你的知識卡片將在這裡顯示</div>
+        <div className="text-sm">在左側輸入主題，點「製作我的知識卡片」</div>
+      </div>
+    </div>
+  )
+) : /* list 模式渲染保留原來的 */ null}
+
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {cards.map((c, i) => (
