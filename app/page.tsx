@@ -39,42 +39,51 @@ export default function Home() {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, count, tone, layout: 'poster' }), // 固定海報
+      body: JSON.stringify({ topic, count, tone, layout: 'poster' }), // 固定請海報
     });
 
     const raw = await res.text();
     console.log('[api/chat raw]', raw);
 
     let data: any = null;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      // 兼容「模型多說的話」：擷取第一個 { 到最後一個 }
+
+    // ① 先嘗試直接 JSON.parse
+    try { data = JSON.parse(raw); } catch {}
+
+    // ② 服務端可能回了「文本 + JSON」→ 擷取第一個 { 到最後一個 }
+    if (!data) {
       const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-      if (s >= 0 && e > s) data = JSON.parse(raw.slice(s, e + 1));
-      else throw new Error(raw.slice(0, 200));
+      if (s >= 0 && e > s) {
+        try { data = JSON.parse(raw.slice(s, e + 1)); } catch {}
+      }
     }
 
-    if (!res.ok) {
-      throw new Error(data?.error || `HTTP ${res.status}`);
+    // ③ 服務端可能把 GLM 原始回應丟回來 → 解析 choices[0].message.content
+    if (data && !data.poster && !data.cards && data.choices?.[0]?.message?.content) {
+      const inner = data.choices[0].message.content as string;
+      try { data = JSON.parse(inner); }
+      catch {
+        const s = inner.indexOf('{'), e = inner.lastIndexOf('}');
+        if (s >= 0 && e > s) data = JSON.parse(inner.slice(s, e + 1));
+      }
     }
 
-    // 任何一種可用形狀都吃下來
-    if (data?.poster) {
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+    if (data?.poster) {         // 海報模式
       setLayout('poster');
       setPoster(data.poster);
       return;
     }
-    if (Array.isArray(data?.cards)) {
+    if (Array.isArray(data?.cards)) { // 列表模式
       setLayout('list');
       setCards(data.cards);
       return;
     }
 
-    // 服務端有時回 {error:"..."} 但狀態碼為 200
+    // 服務端有時包 {error:"..."} 但狀態碼仍 200
     if (data?.error) throw new Error(String(data.error));
 
-    // 兜底：把原文顯示出來幫助定位
     throw new Error('Unexpected response: ' + JSON.stringify(data).slice(0, 200));
   } catch (e: any) {
     setErr(e?.message || 'Failed to parse response');
