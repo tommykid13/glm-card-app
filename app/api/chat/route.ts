@@ -2,10 +2,14 @@
 import { systemPrompt, buildUserPrompt } from '../../../lib/prompt/card';
 import { posterSystemPrompt, buildPosterPrompt } from '../../../lib/prompt/poster';
 
-export const runtime = 'nodejs';         // ← 改成 Node
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const preferredRegion = ['iad1']; // ← 偏好跑在 IAD
-export const maxDuration = 60;           // ← Node 最長執行時間
+export const maxDuration = 60;
+
+export async function POST() {
+  return Response.json({ ok: true, from: 'chat-minimal' });
+}
+
 
 const ZHIPU_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
