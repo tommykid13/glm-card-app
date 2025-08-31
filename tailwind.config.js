@@ -1,10 +1,12 @@
-/** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    "./app/**/*.{ts,tsx,js,jsx}",
-    "./components/**/*.{ts,tsx,js,jsx}",
-    "./lib/**/*.{ts,tsx,js,jsx}"
-  ],
-  theme: { extend: {} },
-  plugins: [],
-};
+*** Begin Patch
+*** Update File: tailwind.config.js
+ module.exports = {
+-  content: [],
++  content: [
++    './app/**/*.{js,ts,jsx,tsx}',
++    './components/**/*.{js,ts,jsx,tsx}',
++  ],
+   theme: { extend: {} },
+   plugins: [],
+ }
+*** End Patch
