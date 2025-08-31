@@ -206,82 +206,83 @@ export default function Home() {
               </div>
 
               {/* 渲染 */}
-              {layout === 'poster' ? (
-  poster ? (
-    <div ref={posterRef} className="mx-auto max-w-2xl rounded-2xl bg-[#FFF7ED] p-6 shadow">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-extrabold tracking-tight">{poster.title}</h1>
-        <div className="text-4xl">{poster.heroIcon || '🎓'}</div>
-      </div>
-      {poster.subtitle && <p className="mt-1 text-gray-600">{poster.subtitle}</p>}
-      <div className="my-4 h-px bg-amber-200" />
+-              {layout === 'poster' ? (
+-                poster ? (
+-                  … // 旧的渲染逻辑
+-                ) : (
+-                  … // fallback 提示
+-                )
+-              ) : /* list 模式渲染保留原來的 */ null}
++              {layout === 'poster' ? (
++                poster ? (
++                  <div className="space-y-4" ref={posterRef}>
++                    {/* 标题区：图标 + 标题 */}
++                    <h2 className="text-xl font-bold flex items-center">
++                      {poster.heroIcon || '🎓'} {poster.title}
++                    </h2>
++                    {/* 副标题 */}
++                    {poster.subtitle && <p className="text-sm text-gray-600">{poster.subtitle}</p>}
++                    {/* 主内容区 */}
++                    <div className="space-y-2">
++                      {(poster.sections || []).map((s, i) => (
++                        <div key={i}>
++                          <h3 className="font-semibold">
++                            {s.icon} {s.heading}
++                          </h3>
++                          <p className="text-sm">{s.body}</p>
++                        </div>
++                      ))}
++                    </div>
++                    {/* 对比区 */}
++                    {poster.compare && (
++                      <div>
++                        <h3 className="font-semibold">對比</h3>
++                        <div className="flex space-x-4">
++                          <div>
++                            <h4 className="underline">{poster.compare.left.title}</h4>
++                            {(poster.compare.left.bullets || []).map((b, i) => (
++                              <p key={i}>• {b}</p>
++                            ))}
++                          </div>
++                          <div>
++                            <h4 className="underline">{poster.compare.right.title}</h4>
++                            {(poster.compare.right.bullets || []).map((b, i) => (
++                              <p key={i}>• {b}</p>
++                            ))}
++                          </div>
++                        </div>
++                      </div>
++                    )}
++                    {/* 网格区 */}
++                    {poster.grid && poster.grid.length > 0 && (
++                      <div>
++                        <h3 className="font-semibold">重點</h3>
++                        {poster.grid.map((g, i) => (
++                          <div key={i}>
++                            <h4>{g.icon} {g.title}</h4>
++                            <p>{g.text}</p>
++                          </div>
++                        ))}
++                      </div>
++                    )}
++                    {/* 一句话总结 */}
++                    {poster.takeaway && (
++                      <div>
++                        <h3 className="font-semibold">一句話總結</h3>
++                        <p>{poster.takeaway.summary}</p>
++                        {poster.takeaway.question && <p>{poster.takeaway.question}</p>}
++                      </div>
++                    )}
++                  </div>
++                ) : (
++                  <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
++                    <span className="text-3xl">📖</span>
++                    <p>你的知識卡片將在這裡顯示</p>
++                    <p>在左側輸入主題，點「製作我的知識卡片」</p>
++                  </div>
++                )
++              ) : null}
 
-      {(poster.sections || []).map((s, i) => (
-        <section key={i} className="mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <span className="text-2xl">{s.icon}</span>{s.heading}
-          </h2>
-          <p className="mt-1 text-gray-700 leading-relaxed">{s.body}</p>
-        </section>
-      ))}
-
-      {poster.compare && (
-        <div className="my-5 grid grid-cols-2 gap-4">
-          <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
-            <div className="text-sm text-gray-500">對比</div>
-            <div className="text-lg font-semibold">{poster.compare.left.title}</div>
-            <ul className="mt-2 text-left list-disc list-inside text-gray-700">
-              {(poster.compare.left.bullets || []).map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
-          </div>
-          <div className="rounded-xl bg-white p-4 text-center shadow-sm border border-amber-100">
-            <div className="text-sm text-gray-500">VS</div>
-            <div className="text-lg font-semibold">{poster.compare.right.title}</div>
-            <ul className="mt-2 text-left list-disc list-inside text-gray-700">
-              {(poster.compare.right.bullets || []).map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {poster.grid && (
-        <>
-          <h3 className="mt-6 mb-2 text-lg font-semibold">環境變化的影響</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {poster.grid.map((g, i) => (
-              <div key={i} className="rounded-xl bg-white p-4 shadow-sm border border-amber-100">
-                <div className="flex items-center gap-2 font-semibold">
-                  <span className="text-xl">{g.icon}</span>{g.title}
-                </div>
-                <p className="mt-1 text-gray-700">{g.text}</p>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {poster.takeaway && (
-        <div className="mt-6 rounded-xl bg-white p-4 border border-amber-100">
-          <div className="font-semibold">一句話總結</div>
-          <p className="mt-1">
-            <span className="font-semibold text-amber-700">{poster.takeaway.summary}</span>
-          </p>
-          {poster.takeaway.question && (
-            <p className="mt-2 text-gray-700">{poster.takeaway.question}</p>
-          )}
-        </div>
-      )}
-    </div>
-  ) : (
-    <div className="flex h-[360px] items-center justify-center rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/40">
-      <div className="text-center text-gray-500">
-        <div className="mb-2 text-3xl">📖</div>
-        <div className="font-medium">你的知識卡片將在這裡顯示</div>
-        <div className="text-sm">在左側輸入主題，點「製作我的知識卡片」</div>
-      </div>
-    </div>
-  )
-) : /* list 模式渲染保留原來的 */ null}
 
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
