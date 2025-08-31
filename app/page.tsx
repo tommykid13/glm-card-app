@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { Card } from '../types/card';
-import type { Poster } from '../types/poster';
 import { toPng } from 'html-to-image';
+
+type Layout = 'poster' | 'list';
 
 const SUGGESTIONS = [
   '恐龍為什麼會滅亡？',
@@ -15,297 +15,397 @@ const SUGGESTIONS = [
   '科學實驗：做浮沉蛋',
 ];
 
-type Layout = 'poster' | 'list';
-
 export default function Home() {
   const [topic, setTopic] = useState('');
   const [count, setCount] = useState(6);
   const [tone, setTone] = useState('兒童友好');
   const [layout, setLayout] = useState<Layout>('poster');
 
-  const [cards, setCards] = useState<Card[]>([]);
-  const [poster, setPoster] = useState<Poster | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string>('');
+  // 简化类型，避免与外部定义不一致导致的编译问题
+  const [cards, setCards] = useState<any[]>([]);
+  const [poster, setPoster] = useState<any>(null);
 
-  const posterRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const posterRef = useRef<HTMLDivElement | null>(null);
 
   async function generate() {
-  if (!topic.trim()) return;
-  setLoading(true); setErr('');
-  setCards([]); setPoster(null);
+    if (!topic.trim()) return;
+    setLoading(true);
+    setErr('');
+    setCards([]);
+    setPoster(null);
 
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, count, tone, layout: 'poster' }), // 固定請海報
-    });
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, count, tone, layout: 'poster' }), // 固定向後端請海報
+      });
 
-    const raw = await res.text();
-    console.log('[api/chat raw]', raw);
+      // —— 更稳健的解析：优先 .json()；失败再回退 text() → 手动截取大括号 —— //
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        const raw = await res.text();
+        const s = raw.indexOf('{');
+        const e = raw.lastIndexOf('}');
+        data = JSON.parse(raw.slice(s, e + 1));
+      }
 
-    let data: any = null;
-    try { data = JSON.parse(raw); } catch {
-      const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-      if (s >= 0 && e > s) data = JSON.parse(raw.slice(s, e + 1));
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
+      if (data?.poster) {
+        setLayout('poster');
+        setPoster(data.poster);
+        return;
+      }
+      if (Array.isArray(data?.cards)) {
+        setLayout('list');
+        setCards(data.cards);
+        return;
+      }
+
+      if (data?.error) throw new Error(String(data.error));
+      throw new Error('Unexpected response');
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to parse response');
+    } finally {
+      setLoading(false);
     }
-
-    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-
-    if (data?.poster) {               // ← 關鍵：設置 poster
-      setLayout('poster');
-      setPoster(data.poster);
-      return;
-    }
-    if (Array.isArray(data?.cards)) { // 後備：列表
-      setLayout('list');
-      setCards(data.cards);
-      return;
-    }
-
-    if (data?.error) throw new Error(String(data.error));
-    throw new Error('Unexpected response: ' + JSON.stringify(data).slice(0, 200));
-  } catch (e: any) {
-    setErr(e?.message || 'Failed to parse response');
-  } finally {
-    setLoading(false);
   }
-}
 
-  function onPickSuggestion(s: string) { setTopic(s); }
+  function onPickSuggestion(s: string) {
+    setTopic(s);
+  }
+
   function copyJSON() {
     const obj = layout === 'poster' ? { poster } : { cards };
     navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
   }
+
   function copyAllText() {
     if (layout === 'poster' && poster) {
       const t = [
         `${poster.heroIcon || '🎓'} ${poster.title}`,
         poster.subtitle || '',
-        ...(poster.sections || []).map(s => `【${s.heading}】${s.body}`),
-        poster.compare ? `對比：${poster.compare.left.title} vs ${poster.compare.right.title}` : '',
-        ...(poster.grid || []).map(g => `${g.icon} ${g.title}：${g.text}`),
-        poster.takeaway ? `一句話：${poster.takeaway.summary}。思考：${poster.takeaway.question}` : '',
-      ].filter(Boolean).join('\n');
+        ...(poster.sections || []).map((s: any) => `【${s.heading}】${s.body}`),
+        poster.compare
+          ? `對比：${poster.compare.left.title} vs ${poster.compare.right.title}`
+          : '',
+        ...(poster.grid || []).map((g: any) => `${g.icon} ${g.title}：${g.text}`),
+        poster.takeaway
+          ? `一句話：${poster.takeaway.summary}。思考：${poster.takeaway.question}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
       navigator.clipboard.writeText(t);
       return;
     }
     if (layout === 'list') {
-      const t = cards.map((c,i)=>`#${i+1} ${c.icon} ${c.title}\n${c.description}\n標籤：${(c.tags||[]).join('/')}`).join('\n\n');
+      const t = cards
+        .map(
+          (c: any, i: number) =>
+            `#${i + 1} ${c.icon || ''} ${c.title}\n${c.description}\n標籤：${
+              (c.tags || []).join('/') || '-'
+            }`,
+        )
+        .join('\n\n');
       navigator.clipboard.writeText(t);
     }
   }
+
   async function exportPNG() {
     if (!posterRef.current) return;
     const url = await toPng(posterRef.current, { cacheBust: true, pixelRatio: 2 });
     const a = document.createElement('a');
-    a.href = url; a.download = 'poster.png'; a.click();
+    a.href = url;
+    a.download = 'poster.png';
+    a.click();
   }
+
   function exportHTML() {
     if (!posterRef.current) return;
-    const html = `<!doctype html><meta charset="utf-8"><title>${poster?.title || 'poster'}</title>` + posterRef.current.outerHTML;
+    const html =
+      `<!doctype html><meta charset="utf-8"><title>${poster?.title || 'poster'}</title>` +
+      posterRef.current.outerHTML;
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'poster.html'; a.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'poster.html';
+    a.click();
     URL.revokeObjectURL(url);
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="mx-auto max-w-6xl px-4 py-6">
-        <div className="flex items-center gap-3">
-          <div className="text-3xl">🧠</div>
-          <div>
-            <h1 className="text-2xl font-semibold">小朋友知識卡片</h1>
-            <p className="text-sm text-gray-600">用自然語言學新知，創建有趣學習卡片！</p>
-          </div>
-        </div>
+    <main className="mx-auto max-w-6xl p-6">
+      {/* 頭部 */}
+      <header className="mb-4">
+        <h1 className="text-2xl font-bold">小朋友知識卡片</h1>
+        <p className="text-sm text-gray-600">用自然語言學新知，創建有趣學習卡片！</p>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-16">
-        <div className="flex flex-col md:flex-row gap-6">
-          {/* 左側控制欄 */}
-          <aside className="w-full md:w-[360px]">
-            <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
-              <h2 className="mb-2 text-[15px] font-semibold">💡 你想學什麼知識呢？</h2>
-              <textarea
-                className="w-full rounded-xl border border-amber-200 bg-amber-50/60 p-3 outline-none focus:ring-2 focus:ring-amber-300"
-                rows={5}
-                placeholder="告訴我你想了解的任何知識，我會為你做一張有趣的卡片！"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-[320px,1fr]">
+        {/* 左側控制欄 */}
+        <aside className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <label className="mb-2 block text-sm font-medium">💡 你想學什麼知識呢？</label>
+          <textarea
+            className="mb-3 h-24 w-full resize-none rounded border p-2"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="例如：太陽系有哪幾顆行星？"
+          />
+
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm">數量</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                className="w-full rounded border p-2"
+                value={count}
+                onChange={(e) => setCount(parseInt(e.target.value || '6'))}
               />
-
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">數量</label>
-                  <input type="number" min={1} max={24}
-                    className="w-full rounded-xl border border-amber-200 bg-white p-2"
-                    value={count} onChange={(e)=>setCount(parseInt(e.target.value || '6'))}/>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">語氣</label>
-                  <input className="w-full rounded-xl border border-amber-200 bg-white p-2"
-                    value={tone} onChange={(e)=>setTone(e.target.value)}/>
-                </div>
-              </div>
-
-              <div className="mt-3 flex gap-2 text-xs">
-                <button
-                  className={`rounded-full px-3 py-1 border ${layout==='poster'?'bg-amber-400 text-white border-amber-400':'border-amber-200 bg-amber-50'}`}
-                  onClick={()=>setLayout('poster')}
-                >海報模式</button>
-                <button
-                  className={`rounded-full px-3 py-1 border ${layout==='list'?'bg-amber-400 text-white border-amber-400':'border-amber-200 bg-amber-50'}`}
-                  onClick={()=>setLayout('list')}
-                >列表模式</button>
-              </div>
-
-              <button
-                onClick={generate}
-                disabled={!topic || loading}
-                className="mt-4 w-full rounded-xl bg-amber-400 px-4 py-3 font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">語氣</label>
+              <select
+                className="w-full rounded border p-2"
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
               >
-                {loading ? '製作中…' : '✨ 製作我的知識卡片'}
-              </button>
+                <option>兒童友好</option>
+                <option>科學嚴謹</option>
+                <option>輕鬆幽默</option>
+              </select>
             </div>
+          </div>
 
-            {/* 推薦主題 */}
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
-              <h3 className="mb-3 text-[15px] font-semibold">⚡ 試試這些知識主題</h3>
-              <div className="flex flex-wrap gap-2">
-                {SUGGESTIONS.map((s) => (
-                  <button key={s} onClick={()=>onPickSuggestion(s)}
-                    className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs hover:bg-amber-100"
-                  >{s}</button>
-                ))}
-              </div>
+          <div className="mb-3 flex gap-2">
+            <button
+              className={`rounded border px-3 py-1 text-sm ${
+                layout === 'poster'
+                  ? 'border-amber-400 bg-amber-100'
+                  : 'border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => setLayout('poster')}
+            >
+              海報模式
+            </button>
+            <button
+              className={`rounded border px-3 py-1 text-sm ${
+                layout === 'list'
+                  ? 'border-amber-400 bg-amber-100'
+                  : 'border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => setLayout('list')}
+            >
+              列表模式
+            </button>
+          </div>
+
+          <button
+            onClick={generate}
+            disabled={loading}
+            className="w-full rounded bg-amber-400 px-4 py-2 font-medium text-white hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? '製作中…' : '✨ 製作我的知識卡片'}
+          </button>
+
+          {/* 推薦主題 */}
+          <div className="mt-5">
+            <div className="mb-2 text-sm font-medium">⚡ 試試這些知識主題</div>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onPickSuggestion(s)}
+                  className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs hover:bg-amber-100"
+                >
+                  {s}
+                </button>
+              ))}
             </div>
-          </aside>
+          </div>
+        </aside>
 
-          {/* 右側展示區 */}
-          <section className="flex-1">
-            <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
-              {/* 工具列 */}
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <button onClick={generate} disabled={!topic || loading}
-                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">重新生成</button>
-                <button onClick={copyJSON} disabled={!(poster || cards.length)}
-                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">複製JSON</button>
-                <button onClick={copyAllText} disabled={!(poster || cards.length)}
-                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">複製全部文案</button>
-                {layout === 'poster' && (
-                  <>
-                    <button onClick={exportPNG} disabled={!poster}
-                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">導出PNG</button>
-                    <button onClick={exportHTML} disabled={!poster}
-                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-40">下載HTML</button>
-                  </>
-                )}
-              </div>
+        {/* 右側展示區 */}
+        <section className="rounded-lg border p-4">
+          {/* 工具列 */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button
+              className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+              onClick={generate}
+              disabled={loading}
+            >
+              重新生成
+            </button>
+            <button
+              className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+              onClick={copyJSON}
+            >
+              複製JSON
+            </button>
+            <button
+              className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+              onClick={copyAllText}
+            >
+              複製全部文案
+            </button>
+            {layout === 'poster' && poster ? (
+              <>
+                <button
+                  className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+                  onClick={exportPNG}
+                >
+                  導出PNG
+                </button>
+                <button
+                  className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+                  onClick={exportHTML}
+                >
+                  下載HTML
+                </button>
+              </>
+            ) : null}
+          </div>
 
-              {/* 渲染 */}
--              {layout === 'poster' ? (
--                poster ? (
--                  … // 旧的渲染逻辑
--                ) : (
--                  … // fallback 提示
--                )
--              ) : /* list 模式渲染保留原來的 */ null}
-+              {layout === 'poster' ? (
-+                poster ? (
-+                  <div className="space-y-4" ref={posterRef}>
-+                    {/* 标题区：图标 + 标题 */}
-+                    <h2 className="text-xl font-bold flex items-center">
-+                      {poster.heroIcon || '🎓'} {poster.title}
-+                    </h2>
-+                    {/* 副标题 */}
-+                    {poster.subtitle && <p className="text-sm text-gray-600">{poster.subtitle}</p>}
-+                    {/* 主内容区 */}
-+                    <div className="space-y-2">
-+                      {(poster.sections || []).map((s, i) => (
-+                        <div key={i}>
-+                          <h3 className="font-semibold">
-+                            {s.icon} {s.heading}
-+                          </h3>
-+                          <p className="text-sm">{s.body}</p>
-+                        </div>
-+                      ))}
-+                    </div>
-+                    {/* 对比区 */}
-+                    {poster.compare && (
-+                      <div>
-+                        <h3 className="font-semibold">對比</h3>
-+                        <div className="flex space-x-4">
-+                          <div>
-+                            <h4 className="underline">{poster.compare.left.title}</h4>
-+                            {(poster.compare.left.bullets || []).map((b, i) => (
-+                              <p key={i}>• {b}</p>
-+                            ))}
-+                          </div>
-+                          <div>
-+                            <h4 className="underline">{poster.compare.right.title}</h4>
-+                            {(poster.compare.right.bullets || []).map((b, i) => (
-+                              <p key={i}>• {b}</p>
-+                            ))}
-+                          </div>
-+                        </div>
-+                      </div>
-+                    )}
-+                    {/* 网格区 */}
-+                    {poster.grid && poster.grid.length > 0 && (
-+                      <div>
-+                        <h3 className="font-semibold">重點</h3>
-+                        {poster.grid.map((g, i) => (
-+                          <div key={i}>
-+                            <h4>{g.icon} {g.title}</h4>
-+                            <p>{g.text}</p>
-+                          </div>
-+                        ))}
-+                      </div>
-+                    )}
-+                    {/* 一句话总结 */}
-+                    {poster.takeaway && (
-+                      <div>
-+                        <h3 className="font-semibold">一句話總結</h3>
-+                        <p>{poster.takeaway.summary}</p>
-+                        {poster.takeaway.question && <p>{poster.takeaway.question}</p>}
-+                      </div>
-+                    )}
-+                  </div>
-+                ) : (
-+                  <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-+                    <span className="text-3xl">📖</span>
-+                    <p>你的知識卡片將在這裡顯示</p>
-+                    <p>在左側輸入主題，點「製作我的知識卡片」</p>
-+                  </div>
-+                )
-+              ) : null}
+          {/* 渲染 */}
+          {layout === 'poster' ? (
+            poster ? (
+              <div className="space-y-4 overflow-y-auto" ref={posterRef}>
+                {/* 標題區 */}
+                <h2 className="flex items-center text-xl font-bold">
+                  <span className="mr-2">{poster.heroIcon || '🎓'}</span>
+                  <span>{poster.title}</span>
+                </h2>
 
+                {/* 副標題 */}
+                {poster.subtitle ? (
+                  <p className="text-sm text-gray-600">{poster.subtitle}</p>
+                ) : null}
 
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {cards.map((c, i) => (
-                    <article key={i} className="rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
-                      <div className="text-3xl">{c.icon}</div>
-                      <h4 className="mt-2 text-base font-semibold">{c.title}</h4>
-                      <p className="mt-1 text-sm text-gray-600">{c.description}</p>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {(c.tags || []).map((t, j) => (
-                          <span key={j} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">{t}</span>
-                        ))}
-                      </div>
-                    </article>
+                {/* 主內容區 */}
+                <div className="space-y-3">
+                  {(poster.sections || []).map((s: any, i: number) => (
+                    <section key={i}>
+                      <h3 className="font-semibold">
+                        {s.icon} {s.heading}
+                      </h3>
+                      <p className="text-sm">{s.body}</p>
+                    </section>
                   ))}
                 </div>
-              )}
 
-              {err && <div className="mt-3 text-sm text-red-600">錯誤：{err}</div>}
+                {/* 對比區 */}
+                {poster.compare ? (
+                  <section>
+                    <h3 className="font-semibold">對比</h3>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <h4 className="underline">
+                          {poster.compare.left.title}
+                        </h4>
+                        {(poster.compare.left.bullets || []).map(
+                          (b: string, i: number) => (
+                            <p key={i}>• {b}</p>
+                          ),
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="underline">
+                          {poster.compare.right.title}
+                        </h4>
+                        {(poster.compare.right.bullets || []).map(
+                          (b: string, i: number) => (
+                            <p key={i}>• {b}</p>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+
+                {/* 網格區 */}
+                {Array.isArray(poster.grid) && poster.grid.length ? (
+                  <section>
+                    <h3 className="font-semibold">重點</h3>
+                    {poster.grid.map((g: any, i: number) => (
+                      <div key={i}>
+                        <h4>
+                          {g.icon} {g.title}
+                        </h4>
+                        <p>{g.text}</p>
+                      </div>
+                    ))}
+                  </section>
+                ) : null}
+
+                {/* 一句話總結 */}
+                {poster.takeaway ? (
+                  <section>
+                    <h3 className="font-semibold">一句話總結</h3>
+                    <p>{poster.takeaway.summary}</p>
+                    {poster.takeaway.question ? (
+                      <p>{poster.takeaway.question}</p>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {/* 調試：仍看不到時可展開 JSON 數據 */}
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-gray-400">
+                    調試：查看 poster JSON
+                  </summary>
+                  <pre className="max-h-64 overflow-auto rounded bg-gray-50 p-2 text-xs">
+                    {JSON.stringify(poster, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            ) : (
+              <div className="flex h-60 flex-col items-center justify-center text-center text-gray-400">
+                <span className="text-3xl">📖</span>
+                <p>你的知識卡片將在這裡顯示</p>
+                <p>在左側輸入主題，點「製作我的知識卡片」</p>
+              </div>
+            )
+          ) : (
+            // list 模式
+            <div className="space-y-3">
+              {cards.map((c: any, i: number) => (
+                <div key={i} className="rounded border p-3">
+                  <div className="font-semibold">
+                    {c.icon || ''} {c.title}
+                  </div>
+                  <p className="text-sm">{c.description}</p>
+                  <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
+                    {(c.tags || []).map((t: string, j: number) => (
+                      <span
+                        key={j}
+                        className="rounded-full border px-2 py-0.5"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-          </section>
-        </div>
-      </main>
-    </div>
+          )}
+
+          {/* 錯誤提示 */}
+          {err ? (
+            <p className="mt-3 text-xs text-red-500">錯誤：{String(err)}</p>
+          ) : null}
+        </section>
+      </section>
+    </main>
   );
 }
