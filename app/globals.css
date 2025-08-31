@@ -1,11 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-:root {
-  color-scheme: light;
-}
-
-body {
-  @apply bg-[#FFF8F1] text-[#3b3b3b];
-}
+*** Begin Patch
+*** Add File: app/globals.css
++@tailwind base;
++@tailwind components;
++@tailwind utilities;
++
++/* 细节优化，可按需调整 */
++html, body, #__next { height: 100%; }
++body { background: #fffaf3; } /* 柔和米色背景，与你站点视觉一致 */
+*** End Patch
